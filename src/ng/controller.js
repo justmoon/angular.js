@@ -12,7 +12,7 @@
  */
 function $ControllerProvider() {
   var controllers = {},
-      CNTRL_REG = /^(\w+)(\s+as\s+(\w+))?$/;
+      CNTRL_REG = /^(\S+)(\s+as\s+(\w+))?$/;
 
 
   /**
@@ -74,9 +74,8 @@ function $ControllerProvider() {
       instance = $injector.instantiate(expression, locals);
 
       if (identifier) {
-        if (typeof locals.$scope !== 'object') {
-          throw new Error('Can not export controller as "' + identifier + '". ' +
-              'No scope object provided!');
+        if (!(locals && typeof locals.$scope == 'object')) {
+          throw minErr('$controller')('noscp', "Cannot export controller '{0}' as '{1}'! No $scope object provided via `locals`.", constructor || expression.name, identifier);
         }
 
         locals.$scope[identifier] = instance;

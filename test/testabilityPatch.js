@@ -56,7 +56,7 @@ afterEach(function() {
   forEachSorted(cache, function(expando, key){
     angular.forEach(expando.data, function(value, key){
       count ++;
-      if (value.$element) {
+      if (value && value.$element) {
         dump('LEAK', key, value.$id, sortedHtml(value.$element));
       } else {
         dump('LEAK', key, angular.toJson(value));
@@ -106,8 +106,13 @@ function dealoc(obj) {
   }
 
   function cleanup(element) {
-    element.unbind().removeData();
-    for ( var i = 0, children = element.contents() || []; i < children.length; i++) {
+    element.off().removeData();
+    // Note:  We aren't using element.contents() here.  Under jQuery, element.contents() can fail
+    // for IFRAME elements.  jQuery explicitly uses (element.contentDocument ||
+    // element.contentWindow.document) and both properties are null for IFRAMES that aren't attached
+    // to a document.
+    var children = element[0].childNodes || [];
+    for ( var i = 0; i < children.length; i++) {
       cleanup(angular.element(children[i]));
     }
   }
@@ -120,11 +125,14 @@ function dealoc(obj) {
 function sortedHtml(element, showNgClass) {
   var html = "";
   forEach(jqLite(element), function toString(node) {
+
     if (node.nodeName == "#text") {
       html += node.nodeValue.
         replace(/&(\w+[&;\W])?/g, function(match, entity){return entity?match:'&amp;';}).
         replace(/</g, '&lt;').
         replace(/>/g, '&gt;');
+    } else if (node.nodeName == "#comment") {
+      html += '<!--' + node.nodeValue + '-->';
     } else {
       html += '<' + (node.nodeName || '?NOT_A_NODE?').toLowerCase();
       var attributes = node.attributes || [];
@@ -159,13 +167,19 @@ function sortedHtml(element, showNgClass) {
             attr.name !='style' &&
             attr.name.substr(0, 6) != 'jQuery') {
           // in IE we need to check for all of these.
-          if (!/ng-\d+/.exec(attr.name) &&
-              attr.name != 'getElementById' &&
+          if (/ng-\d+/.exec(attr.name) ||
+              attr.name == 'getElementById' ||
               // IE7 has `selected` in attributes
-              attr.name !='selected' &&
+              attr.name == 'selected' ||
               // IE7 adds `value` attribute to all LI tags
-              (node.nodeName != 'LI' || attr.name != 'value'))
-            attrs.push(' ' + attr.name + '="' + attr.value + '"');
+              (node.nodeName == 'LI' && attr.name == 'value') ||
+              // IE8 adds bogus rowspan=1 and colspan=1 to TD elements
+              (node.nodeName == 'TD' && attr.name == 'rowSpan' && attr.value == '1') ||
+              (node.nodeName == 'TD' && attr.name == 'colSpan' && attr.value == '1')) {
+            continue;
+          }
+
+          attrs.push(' ' + attr.name + '="' + attr.value + '"');
         }
       }
       attrs.sort();
@@ -219,7 +233,7 @@ function sortedHtml(element, showNgClass) {
  */
 function isCssVisible(node) {
   var display = node.css('display');
-  return display != 'none';
+  return !node.hasClass('ng-hide') && display != 'none';
 }
 
 function assertHidden(node) {
@@ -274,3 +288,10 @@ function pending() {
 function trace(name) {
   dump(new Error(name).stack);
 }
+
+var karmaDump = dump;
+window.dump = function () {
+  karmaDump.apply(undefined, map(arguments, function(arg) {
+    return angular.mock.dump(arg);
+  }));
+};

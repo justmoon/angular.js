@@ -63,7 +63,7 @@ api/ng.$rootScope.Scope#$digest digest} cycle. An example of interpolation is sh
 here:
 
 <pre>
-<a href="img/{{username}}.jpg">Hello {{username}}!</a>
+<a ng-href="img/{{username}}.jpg">Hello {{username}}!</a>
 </pre>
 
 
@@ -232,7 +232,7 @@ In this example we will build a directive that displays the current time.
 
            // listen on DOM destroy (removal) event, and cancel the next UI update
            // to prevent updating time after the DOM element was removed.
-           element.bind('$destroy', function() {
+           element.on('$destroy', function() {
              $timeout.cancel(timeoutId);
            });
 
@@ -250,7 +250,7 @@ In this example we will build a directive that displays the current time.
 
 # Writing directives (long version)
 
-There are different ways to declare a directive. The difference resides in the return 
+There are different ways to declare a directive. The difference resides in the return
 value of the factory function. You can either return a Directive Definition Object
 (see below) that defines the directive properties, or just the postLink function
 of such an object (all other properties will have the default values).
@@ -263,26 +263,37 @@ Here's an example directive declared with a Directive Definition Object:
   myModule.directive('directiveName', function factory(injectables) {
     var directiveDefinitionObject = {
       priority: 0,
-      template: '<div></div>',
-      templateUrl: 'directive.html',
+      template: '<div></div>', // or // function(tElement, tAttrs) { ... },
+      // or
+      // templateUrl: 'directive.html', // or // function(tElement, tAttrs) { ... },
       replace: false,
       transclude: false,
       restrict: 'A',
       scope: false,
+      controller: function($scope, $element, $attrs, $transclude, otherInjectables) { ... },
+      require: 'siblingDirectiveName', // or // ['^parentDirectiveName', '?optionalDirectiveName', '?^optionalParent'],
       compile: function compile(tElement, tAttrs, transclude) {
         return {
           pre: function preLink(scope, iElement, iAttrs, controller) { ... },
           post: function postLink(scope, iElement, iAttrs, controller) { ... }
         }
+	      // or
+	      // return function postLink( ... ) { ... }
       },
-      link: function postLink(scope, iElement, iAttrs) { ... }
+      // or
+      // link: {
+      //  pre: function preLink(scope, iElement, iAttrs, controller) { ... },
+      //  post: function postLink(scope, iElement, iAttrs, controller) { ... }
+      // }
+      // or
+      // link: function postLink( ... ) { ... }
     };
     return directiveDefinitionObject;
   });
 </pre>
 
 In most cases you will not need such fine control and so the above can be simplified. You can still
-return a Directive Definition Object, but only setting the 'compile' function property of the Object,
+return a Directive Definition Object, but only setting the 'link' function property of the Object,
 and rely on the default values for other properties. 
 
 Therefore the above can be simplified as:
@@ -292,24 +303,11 @@ Therefore the above can be simplified as:
 
   myModule.directive('directiveName', function factory(injectables) {
     var directiveDefinitionObject = {
-      compile: function compile(tElement, tAttrs) {
-        return function postLink(scope, iElement, iAttrs) { ... }
-      }
+      link: function postLink(scope, iElement, iAttrs) { ... }
     };
     return directiveDefinitionObject;
-  });
-</pre>
-
-Finally, most directives concern themselves only with instances, not with template transformations, allowing
-further simplification.
-
-Here we only define the postLink function:
-
-<pre>
-  var myModule = angular.module(...);
-
-  myModule.directive('directiveName', function factory(injectables) {
-    return function postLink(scope, iElement, iAttrs) { ... }
+    // or
+    // return function postLink(scope, iElement, iAttrs) { ... }
   });
 </pre>
 
@@ -331,8 +329,9 @@ compiler}. The attributes are:
 
   * `priority` - When there are multiple directives defined on a single DOM element, sometimes it
     is necessary to specify the order in which the directives are applied. The `priority` is used
-    to sort the directives before their `compile` functions get called. Higher `priority` goes
-    first. The order of directives within the same priority is undefined.
+    to sort the directives before their `compile` functions get called. Priority is defined as a
+    number. Directives with greater numerical `priority` are compiled first. The order of directives with
+    the same priority is undefined. The default priority is `0`.
 
   * `terminal` - If set to true then the current `priority` will be the last set of directives
     which will execute (any directives at the current priority will still execute
@@ -382,9 +381,9 @@ compiler}. The attributes are:
         by calling the `localFn` as `localFn({amount: 22})`.
 
   * `controller` - Controller constructor function. The controller is instantiated before the
-    pre-linking phase and it is shared with other directives if they request it by name (see
+    pre-linking phase and it is shared with other directives (see
     `require` attribute). This allows the directives to communicate with each other and augment
-    each other's behavior. The controller is injectable with the following locals:
+    each other's behavior. The controller is injectable (and supports bracket notation) with the following locals:
 
     * `$scope` - Current scope associated with the element
     * `$element` - Current element
@@ -392,19 +391,29 @@ compiler}. The attributes are:
     * `$transclude` - A transclude linking function pre-bound to the correct transclusion scope:
       `function(cloneLinkingFn)`.
 
+  * `require` - Require another directive and inject its controller as the fourth argument to the linking function. The
+    `require` takes a string name (or array of strings) of the directive(s) to pass in. If an array is used, the injected
+    argument will be an array in corresponding order. If no such directive can be
+    found, or if the directive does not have a controller, then an error is raised. The name can be prefixed with:
+
+    * (no prefix) - Locate the required controller on the current element.
+    * `?` - Attempt to locate the required controller, or return `null` if not found.
+    * `^` - Locate the required controller by searching the element's parents.
+    * `?^` - Attempt to locate the required controller by searching the element's parents, or return `null` if not found.
+
+  * `controllerAs` - Controller alias at the directive scope. An alias for the controller so it
+    can be referenced at the directive template. The directive needs to define a scope for this
+    configuration to be used. Useful in the case when directive is used as component.
+  
   * `require` - Require another controller be passed into current directive linking function. The
     `require` takes a name of the directive controller to pass in. If no such controller can be
     found an error is raised. The name can be prefixed with:
 
-    * `?` - Don't raise an error. This makes the require dependency optional.
-    * `^` - Look for the controller on parent elements as well.
-
-
   * `restrict` - String of subset of `EACM` which restricts the directive to a specific directive
-    declaration style. If omitted directives are allowed on attributes only.
+    declaration style. If omitted, the default (attributes only) is used.
 
     * `E` - Element name: `<my-directive></my-directive>`
-    * `A` - Attribute: `<div my-directive="exp"></div>`
+    * `A` - Attribute (default): `<div my-directive="exp"></div>`
     * `C` - Class: `<div class="my-directive: exp;"></div>`
     * `M` - Comment: `<!-- directive: my-directive exp -->`
 
@@ -413,8 +422,8 @@ compiler}. The attributes are:
     {@link guide/directive#Components Creating Components} section below for more information.
 
     You can specify `template` as a string representing the template or as a function which takes
-    two arguments `tElement` and `tAttrs` (described in the `compile` function api below) and returns
-    a string value representing the template.
+    two arguments `tElement` and `tAttrs` (described in the `compile` function api below) and
+    returns a string value representing the template.
 
   * `templateUrl` - Same as `template` but the template is loaded from the specified URL. Because
     the template loading is asynchronous the compilation/linking is suspended until the template
@@ -422,7 +431,8 @@ compiler}. The attributes are:
 
     You can specify `templateUrl` as a string representing the URL or as a function which takes two
     arguments `tElement` and `tAttrs` (described in the `compile` function api below) and returns
-    a string value representing the url.
+    a string value representing the url.  In either case, the template URL is passed through {@link
+    api/ng.$sce#getTrustedResourceUrl $sce.getTrustedResourceUrl}.
 
   * `replace` - if set to `true` then the template will replace the current element, rather than
     append the template to the element.
@@ -454,7 +464,7 @@ The compile function deals with transforming the template DOM. Since most direct
 template transformation, it is not used often. Examples that require compile functions are
 directives that transform template DOM, such as {@link
 api/ng.directive:ngRepeat ngRepeat}, or load the contents
-asynchronously, such as {@link api/ng.directive:ngView ngView}. The
+asynchronously, such as {@link api/ngRoute.directive:ngView ngView}. The
 compile function takes the following arguments.
 
   * `tElement` - template element - The element where the directive has been declared. It is
@@ -473,8 +483,8 @@ done in a linking function rather than in a compile function.
 
 A compile function can have a return value which can be either a function or an object.
 
-* returning a function - is equivalent to registering the linking function via the `link` property
-  of the config object when the compile function is empty.
+* returning a (post-link) function - is equivalent to registering the linking function via the
+  `link` property of the config object when the compile function is empty.
 
 * returning an object with function(s) registered via `pre` and `post` properties - allows you to
   control when a linking function should be called during the linking phase. See info about
@@ -524,7 +534,7 @@ The {@link api/ng.$compile.directive.Attributes Attributes} object - passed as a
 link() or compile() functions - is a way of accessing:
 
   * *normalized attribute names:* Since a directive such as 'ngBind' can be expressed in many ways
-    such as 'ng:bind', or 'x-ng-bind', the attributes object allows for normalized accessed to
+    such as 'ng:bind', or 'x-ng-bind', the attributes object allows for normalized access to
     the attributes.
 
   * *directive inter-communication:* All directives share the same instance of the attributes
@@ -679,7 +689,7 @@ Following is an example of building a reusable widget.
                  opened = true;
 
              // Clicking on title should open/close the zippy
-             title.bind('click', toggle);
+             title.on('click', toggle);
 
              // Toggle the closed/opened state
              function toggle() {

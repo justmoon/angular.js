@@ -10,6 +10,11 @@
 angular.scenario = angular.scenario || {};
 
 /**
+ * Expose jQuery (e.g. for custom dsl extensions).
+ */
+angular.scenario.jQuery = _jQuery;
+
+/**
  * Defines a new output format.
  *
  * @param {string} name the name of the new output format
@@ -236,7 +241,7 @@ function callerFile(offset) {
 (function(fn){
   var parentTrigger = fn.trigger;
   fn.trigger = function(type) {
-    if (/(click|change|keydown|blur|input)/.test(type)) {
+    if (/(click|change|keydown|blur|input|mousedown|mouseup)/.test(type)) {
       var processDefaults = [];
       this.each(function(index, node) {
         processDefaults.push(browserTrigger(node, type));

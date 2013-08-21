@@ -1,7 +1,11 @@
 'use strict';
 
 describe('ngRepeat', function() {
-  var element, $compile, scope, $exceptionHandler;
+  var element, $compile, scope, $exceptionHandler, $compileProvider;
+
+  beforeEach(module(function(_$compileProvider_) {
+    $compileProvider = _$compileProvider_;
+  }));
 
 
   beforeEach(module(function($exceptionHandlerProvider) {
@@ -55,6 +59,46 @@ describe('ngRepeat', function() {
   });
 
 
+  it('should iterate over an array-like object', function() {
+    element = $compile(
+      '<ul>' +
+        '<li ng-repeat="item in items">{{item.name}};</li>' +
+      '</ul>')(scope);
+
+    document.body.innerHTML = "<p>" +
+                                      "<a name='x'>a</a>" +
+                                      "<a name='y'>b</a>" +
+                                      "<a name='x'>c</a>" +
+                                    "</p>";
+
+    var htmlCollection = document.getElementsByTagName('a');
+    scope.items = htmlCollection;
+    scope.$digest();
+    expect(element.find('li').length).toEqual(3);
+    expect(element.text()).toEqual('x;y;x;');
+  });
+
+  it('should iterate over an array-like class', function() {
+    function Collection() {}
+    Collection.prototype = new Array();
+    Collection.prototype.length = 0;
+
+    var collection = new Collection();
+    collection.push({ name: "x" });
+    collection.push({ name: "y" });
+    collection.push({ name: "z" });
+
+    element = $compile(
+      '<ul>' +
+        '<li ng-repeat="item in items">{{item.name}};</li>' +
+      '</ul>')(scope);
+
+    scope.items = collection;
+    scope.$digest();
+    expect(element.find('li').length).toEqual(3);
+    expect(element.text()).toEqual('x;y;z;');
+  });
+
   it('should iterate over on object/map', function() {
     element = $compile(
       '<ul>' +
@@ -65,6 +109,15 @@ describe('ngRepeat', function() {
     expect(element.text()).toEqual('misko:swe|shyam:set|');
   });
 
+  it('should iterate over an object/map with identical values', function() {
+    element = $compile(
+      '<ul>' +
+        '<li ng-repeat="(key, value) in items">{{key}}:{{value}}|</li>' +
+      '</ul>')(scope);
+    scope.items = {age:20, wealth:20, prodname: "Bingo", dogname: "Bingo", codename: "20"};
+    scope.$digest();
+    expect(element.text()).toEqual('age:20|codename:20|dogname:Bingo|prodname:Bingo|wealth:20|');
+  });
 
   describe('track by', function() {
     it('should track using expression function', function() {
@@ -91,6 +144,54 @@ describe('ngRepeat', function() {
               '</ul>')(scope);
       scope.items = [{name: 'misko'}, {name: 'igor'}];
       scope.$digest();
+      var li0 = element.find('li')[0];
+      var li1 = element.find('li')[1];
+
+      scope.items.push(scope.items.shift());
+      scope.$digest();
+      expect(element.find('li')[0]).toBe(li1);
+      expect(element.find('li')[1]).toBe(li0);
+    });
+
+
+    it('should still filter when track is present', function() {
+      scope.isIgor = function (item) {
+        return item.name === 'igor';
+      };
+      element = $compile(
+          '<ul>' +
+            '<li ng-repeat="item in items | filter:isIgor track by $id(item)">{{item.name}};</li>' +
+          '</ul>')(scope);
+      scope.items = [{name: 'igor'}, {name: 'misko'}];
+      scope.$digest();
+
+      expect(element.find('li').text()).toBe('igor;');
+    });
+
+
+    it('should track using provided function when a filter is present', function() {
+      scope.newArray = function (items) {
+        var newArray = [];
+        angular.forEach(items, function (item) {
+          newArray.push({
+            id: item.id,
+            name: item.name
+          });
+        });
+        return newArray;
+      };
+      element = $compile(
+          '<ul>' +
+            '<li ng-repeat="item in items | filter:newArray track by item.id">{{item.name}};</li>' +
+          '</ul>')(scope);
+      scope.items = [
+        {id: 1, name: 'igor'},
+        {id: 2, name: 'misko'}
+      ];
+      scope.$digest();
+
+      expect(element.text()).toBe('igor;misko;');
+
       var li0 = element.find('li')[0];
       var li1 = element.find('li')[1];
 
@@ -249,7 +350,7 @@ describe('ngRepeat', function() {
     element = jqLite('<ul><li ng-repeat="i dont parse"></li></ul>');
     $compile(element)(scope);
     expect($exceptionHandler.errors.shift()[0].message).
-        toBe("Expected ngRepeat in form of '_item_ in _collection_[ track by _id_]' but got 'i dont parse'.");
+        toMatch(/^\[ngRepeat:iexp\] Expected expression in form of '_item_ in _collection_\[ track by _id_\]' but got 'i dont parse'\./);
   });
 
 
@@ -257,7 +358,7 @@ describe('ngRepeat', function() {
       element = jqLite('<ul><li ng-repeat="i dont parse in foo"></li></ul>');
       $compile(element)(scope);
     expect($exceptionHandler.errors.shift()[0].message).
-        toBe("'item' in 'item in collection' should be identifier or (key, value) but got 'i dont parse'.");
+        toMatch(/^\[ngRepeat:iidexp\] '_item_' in '_item_ in _collection_' should be an identifier or '\(_key_, _value_\)' expression, but got 'i dont parse'\./);
   });
 
 
@@ -271,7 +372,6 @@ describe('ngRepeat', function() {
     scope.$digest();
     expect(element.text()).toEqual('misko:0|shyam:1|frodo:2|');
   });
-
 
   it('should expose iterator offset as $index when iterating over objects', function() {
     element = $compile(
@@ -314,6 +414,32 @@ describe('ngRepeat', function() {
   });
 
 
+  it('should expose iterator position as $even and $odd when iterating over arrays',
+      function() {
+    element = $compile(
+      '<ul>' +
+        '<li ng-repeat="item in items">{{item}}:{{$even}}-{{$odd}}|</li>' +
+      '</ul>')(scope);
+    scope.items = ['misko', 'shyam', 'doug'];
+    scope.$digest();
+    expect(element.text()).
+        toEqual('misko:true-false|shyam:false-true|doug:true-false|');
+
+    scope.items.push('frodo');
+    scope.$digest();
+    expect(element.text()).
+        toBe('misko:true-false|' +
+                'shyam:false-true|' +
+                'doug:true-false|' +
+                'frodo:false-true|');
+
+    scope.items.shift();
+    scope.items.pop();
+    scope.$digest();
+    expect(element.text()).toBe('shyam:true-false|doug:false-true|');
+  });
+
+
   it('should expose iterator position as $first, $middle and $last when iterating over objects',
       function() {
     element = $compile(
@@ -339,6 +465,27 @@ describe('ngRepeat', function() {
   });
 
 
+  it('should expose iterator position as $even and $odd when iterating over objects',
+      function() {
+    element = $compile(
+      '<ul>' +
+        '<li ng-repeat="(key, val) in items">{{key}}:{{val}}:{{$even}}-{{$odd}}|</li>' +
+      '</ul>')(scope);
+    scope.items = {'misko':'m', 'shyam':'s', 'doug':'d', 'frodo':'f'};
+    scope.$digest();
+    expect(element.text()).
+        toBe('doug:d:true-false|' +
+                'frodo:f:false-true|' +
+                'misko:m:true-false|' +
+                'shyam:s:false-true|');
+
+    delete scope.items.frodo;
+    delete scope.items.shyam;
+    scope.$digest();
+    expect(element.text()).toBe('doug:d:true-false|misko:m:false-true|');
+  });
+
+
   it('should calculate $first, $middle and $last when we filter out properties from an obj', function() {
     element = $compile(
         '<ul>' +
@@ -351,6 +498,21 @@ describe('ngRepeat', function() {
         'frodo:f:false-true-false|' +
         'misko:m:false-true-false|' +
         'shyam:s:false-false-true|');
+  });
+
+
+  it('should calculate $even and $odd when we filter out properties from an obj', function() {
+    element = $compile(
+        '<ul>' +
+            '<li ng-repeat="(key, val) in items">{{key}}:{{val}}:{{$even}}-{{$odd}}|</li>' +
+            '</ul>')(scope);
+    scope.items = {'misko':'m', 'shyam':'s', 'doug':'d', 'frodo':'f', '$toBeFilteredOut': 'xxxx'};
+    scope.$digest();
+    expect(element.text()).
+        toEqual('doug:d:true-false|' +
+        'frodo:f:false-true|' +
+        'misko:m:true-false|' +
+        'shyam:s:false-true|');
   });
 
 
@@ -422,9 +584,159 @@ describe('ngRepeat', function() {
     scope.array = ['b', 'a'];
     scope.$digest();
 
-    var lis = element.find('li');
+    lis = element.find('li');
     expect(lis.eq(0).data('mark')).toEqual('b');
     expect(lis.eq(1).data('mark')).toEqual('a');
+  });
+
+
+  describe('nesting in replaced directive templates', function() {
+
+    it('should work when placed on a non-root element of attr directive with SYNC replaced template',
+        inject(function($templateCache, $compile, $rootScope) {
+      $compileProvider.directive('rr', function() {
+        return {
+          restrict: 'A',
+          replace: true,
+          template: '<div ng-repeat="i in items">{{i}}|</div>'
+        };
+      });
+      element = jqLite('<div><span rr>{{i}}|</span></div>');
+      $compile(element)($rootScope);
+      $rootScope.$apply();
+      expect(element.text()).toBe('');
+
+      $rootScope.items = [1, 2];
+      $rootScope.$apply();
+      expect(element.text()).toBe('1|2|');
+      expect(sortedHtml(element)).toBe(
+          '<div>' +
+            '<!-- ngRepeat: i in items -->' +
+            '<div ng-repeat="i in items" rr="">1|</div>' +
+            '<div ng-repeat="i in items" rr="">2|</div>' +
+          '</div>'
+      );
+    }));
+
+
+    it('should work when placed on a non-root element of attr directive with ASYNC replaced template',
+        inject(function($templateCache, $compile, $rootScope) {
+      $compileProvider.directive('rr', function() {
+        return {
+          restrict: 'A',
+          replace: true,
+          templateUrl: 'rr.html'
+        };
+      });
+
+      $templateCache.put('rr.html', '<div ng-repeat="i in items">{{i}}|</div>');
+
+      element = jqLite('<div><span rr>{{i}}|</span></div>');
+      $compile(element)($rootScope);
+      $rootScope.$apply();
+      expect(element.text()).toBe('');
+
+      $rootScope.items = [1, 2];
+      $rootScope.$apply();
+      expect(element.text()).toBe('1|2|');
+      expect(sortedHtml(element)).toBe(
+          '<div>' +
+              '<!-- ngRepeat: i in items -->' +
+              '<div ng-repeat="i in items" rr="">1|</div>' +
+              '<div ng-repeat="i in items" rr="">2|</div>' +
+              '</div>'
+      );
+    }));
+
+
+    it('should work when placed on a root element of attr directive with SYNC replaced template',
+        inject(function($templateCache, $compile, $rootScope) {
+      $compileProvider.directive('replaceMeWithRepeater', function() {
+        return {
+          replace: true,
+          template: '<span ng-repeat="i in items">{{log(i)}}</span>'
+        };
+      });
+      element = jqLite('<span replace-me-with-repeater></span>');
+      $compile(element)($rootScope);
+      expect(element.text()).toBe('');
+      var logs = [];
+      $rootScope.log = function(t) { logs.push(t); };
+
+      // This creates one item, but it has no parent so we can't get to it
+      $rootScope.items = [1, 2];
+      $rootScope.$apply();
+
+      // This cleans up to prevent memory leak
+      $rootScope.items = [];
+      $rootScope.$apply();
+      expect(angular.mock.dump(element)).toBe('<!-- ngRepeat: i in items -->');
+      expect(logs).toEqual([1, 2, 1, 2]);
+    }));
+
+
+    it('should work when placed on a root element of attr directive with ASYNC replaced template',
+        inject(function($templateCache, $compile, $rootScope) {
+      $compileProvider.directive('replaceMeWithRepeater', function() {
+        return {
+          replace: true,
+          templateUrl: 'replace-me-with-repeater.html'
+        };
+      });
+      $templateCache.put('replace-me-with-repeater.html', '<div ng-repeat="i in items">{{log(i)}}</div>');
+      element = jqLite('<span>-</span><span replace-me-with-repeater></span><span>-</span>');
+      $compile(element)($rootScope);
+      expect(element.text()).toBe('--');
+      var logs = [];
+      $rootScope.log = function(t) { logs.push(t); };
+
+      // This creates one item, but it has no parent so we can't get to it
+      $rootScope.items = [1, 2];
+      $rootScope.$apply();
+
+      // This cleans up to prevent memory leak
+      $rootScope.items = [];
+      $rootScope.$apply();
+      expect(sortedHtml(element)).toBe('<span>-</span><!-- ngRepeat: i in items --><span>-</span>');
+      expect(logs).toEqual([1, 2, 1, 2]);
+    }));
+
+
+    it('should work when placed on a root element of element directive with SYNC replaced template',
+        inject(function($templateCache, $compile, $rootScope) {
+      $compileProvider.directive('replaceMeWithRepeater', function() {
+        return {
+          restrict: 'E',
+          replace: true,
+          template: '<div ng-repeat="i in [1,2,3]">{{i}}</div>'
+        };
+      });
+      element = $compile('<div><replace-me-with-repeater></replace-me-with-repeater></div>')($rootScope);
+      expect(element.text()).toBe('');
+      $rootScope.$apply();
+      expect(element.text()).toBe('123');
+    }));
+
+
+    if (!msie || msie > 8) {
+      // only IE>8 supports element directives
+
+      it('should work when placed on a root element of element directive with ASYNC replaced template',
+          inject(function($templateCache, $compile, $rootScope) {
+        $compileProvider.directive('replaceMeWithRepeater', function() {
+          return {
+            restrict: 'E',
+            replace: true,
+            templateUrl: 'replace-me-with-repeater.html'
+          };
+        });
+        $templateCache.put('replace-me-with-repeater.html', '<div ng-repeat="i in [1,2,3]">{{i}}</div>');
+        element = $compile('<div><replace-me-with-repeater></replace-me-with-repeater></div>')($rootScope);
+        expect(element.text()).toBe('');
+        $rootScope.$apply();
+        expect(element.text()).toBe('123');
+      }));
+    }
   });
 
 
@@ -461,7 +773,7 @@ describe('ngRepeat', function() {
       scope.items = [a, a, a];
       scope.$digest();
       expect($exceptionHandler.errors.shift().message).
-          toEqual('Duplicates in a repeater are not allowed. Repeater: item in items key: object:003');
+          toMatch(/^\[ngRepeat:dupes\] Duplicates in a repeater are not allowed\. Use 'track by' expression to specify unique keys\. Repeater: item in items, Duplicate key: object:003/);
 
       // recover
       scope.items = [a];
@@ -472,7 +784,7 @@ describe('ngRepeat', function() {
 
       scope.items = [];
       scope.$digest();
-      var newElements = element.find('li');
+      newElements = element.find('li');
       expect(newElements.length).toEqual(0);
     });
 
@@ -481,7 +793,7 @@ describe('ngRepeat', function() {
       scope.items = [d, d, d];
       scope.$digest();
       expect($exceptionHandler.errors.shift().message).
-          toEqual('Duplicates in a repeater are not allowed. Repeater: item in items key: object:009');
+          toMatch(/^\[ngRepeat:dupes\] Duplicates in a repeater are not allowed\. Use 'track by' expression to specify unique keys\. Repeater: item in items, Duplicate key: object:009/);
 
       // recover
       scope.items = [a];
@@ -492,7 +804,7 @@ describe('ngRepeat', function() {
 
       scope.items = [];
       scope.$digest();
-      var newElements = element.find('li');
+      newElements = element.find('li');
       expect(newElements.length).toEqual(0);
     });
 
@@ -530,44 +842,63 @@ describe('ngRepeat', function() {
       expect(newLis[2]).toEqual(lis[1]);
     });
   });
+
+  it('should grow multi-node repeater', inject(function($compile, $rootScope) {
+    $rootScope.show = false;
+    $rootScope.books = [
+      {title:'T1', description: 'D1'},
+      {title:'T2', description: 'D2'}
+    ];
+    element = $compile(
+        '<div>' +
+            '<dt ng-repeat-start="book in books">{{book.title}}:</dt>' +
+            '<dd ng-repeat-end>{{book.description}};</dd>' +
+        '</div>')($rootScope);
+
+    $rootScope.$digest();
+    expect(element.text()).toEqual('T1:D1;T2:D2;');
+    $rootScope.books.push({title:'T3', description: 'D3'});
+    $rootScope.$digest();
+    expect(element.text()).toEqual('T1:D1;T2:D2;T3:D3;');
+  }));
+
+
 });
 
-describe('ngRepeat ngAnimate', function() {
-  var vendorPrefix, window;
-  var body, element;
+describe('ngRepeat animations', function() {
+  var body, element, $rootElement;
 
   function html(html) {
-    body.html(html);
-    element = body.children().eq(0);
+    $rootElement.html(html);
+    element = $rootElement.children().eq(0);
     return element;
   }
 
-  beforeEach(function() {
+  beforeEach(module('mock.animate'));
+
+  beforeEach(module(function() {
     // we need to run animation on attached elements;
-    body = jqLite(document.body);
-  });
+    return function(_$rootElement_) {
+      $rootElement = _$rootElement_;
+      body = jqLite(document.body);
+      body.append($rootElement);
+    };
+  }));
 
   afterEach(function(){
     dealoc(body);
     dealoc(element);
   });
 
-  beforeEach(module(function($animationProvider, $provide) {
-    $provide.value('$window', window = angular.mock.createMockWindow());
-    return function($sniffer, $animator) {
-      vendorPrefix = '-' + $sniffer.vendorPrefix + '-';
-      $animator.enabled(true);
-    };
-  }));
+  it('should fire off the enter animation',
+    inject(function($compile, $rootScope, $animate) {
 
-  it('should fire off the enter animation + add and remove the css classes',
-    inject(function($compile, $rootScope, $sniffer) {
+    var item;
 
     element = $compile(html(
       '<div><div ' +
-        'ng-repeat="item in items" ' +
-        'ng-animate="{enter: \'custom-enter\'}">' +
-        '{{ item }}' + 
+        'ng-repeat="item in items">' +
+        '{{ item }}' +
       '</div></div>'
     ))($rootScope);
 
@@ -576,81 +907,55 @@ describe('ngRepeat ngAnimate', function() {
     $rootScope.items = ['1','2','3'];
     $rootScope.$digest();
 
-    //if we add the custom css stuff here then it will get picked up before the animation takes place
-    var cssProp = vendorPrefix + 'transition';
-    var cssValue = '1s linear all';
-    var kids = element.children();
-    for(var i=0;i<kids.length;i++) {
-      kids[i] = jqLite(kids[i]);
-      kids[i].css(cssProp, cssValue);
-    }
+    item = $animate.flushNext('enter').element;
+    expect(item.text()).toBe('1');
 
-    if ($sniffer.supportsTransitions) {
-      angular.forEach(kids, function(kid) {
-        expect(kid.attr('class')).toContain('custom-enter-setup');
-        window.setTimeout.expect(1).process();
-      });
+    item = $animate.flushNext('enter').element;
+    expect(item.text()).toBe('2');
 
-      angular.forEach(kids, function(kid) {
-        expect(kid.attr('class')).toContain('custom-enter-start');
-        window.setTimeout.expect(1000).process();
-      });
-    } else {
-      expect(window.setTimeout.queue).toEqual([]);
-    }
-
-    angular.forEach(kids, function(kid) {
-      expect(kid.attr('class')).not.toContain('custom-enter-setup');
-      expect(kid.attr('class')).not.toContain('custom-enter-start');
-    });
+    item = $animate.flushNext('enter').element;
+    expect(item.text()).toBe('3');
   }));
 
-  it('should fire off the leave animation + add and remove the css classes',
-    inject(function($compile, $rootScope, $sniffer) {
+  it('should fire off the leave animation',
+    inject(function($compile, $rootScope, $animate) {
+
+    var item;
 
     element = $compile(html(
       '<div><div ' +
-        'ng-repeat="item in items" ' +
-        'ng-animate="{leave: \'custom-leave\'}">' +
-        '{{ item }}' + 
+        'ng-repeat="item in items">' +
+        '{{ item }}' +
       '</div></div>'
     ))($rootScope);
 
     $rootScope.items = ['1','2','3'];
     $rootScope.$digest();
 
-    //if we add the custom css stuff here then it will get picked up before the animation takes place
-    var cssProp = vendorPrefix + 'transition';
-    var cssValue = '1s linear all';
-    var kids = element.children();
-    for(var i=0;i<kids.length;i++) {
-      kids[i] = jqLite(kids[i]);
-      kids[i].css(cssProp, cssValue);
-    }
+    item = $animate.flushNext('enter').element;
+    expect(item.text()).toBe('1');
+
+    item = $animate.flushNext('enter').element;
+    expect(item.text()).toBe('2');
+
+    item = $animate.flushNext('enter').element;
+    expect(item.text()).toBe('3');
 
     $rootScope.items = ['1','3'];
     $rootScope.$digest();
 
-    //the last element gets pushed down when it animates
-    var kid = jqLite(element.children()[1]);
-    if ($sniffer.supportsTransitions) {
-      expect(kid.attr('class')).toContain('custom-leave-setup');
-      window.setTimeout.expect(1).process();
-      expect(kid.attr('class')).toContain('custom-leave-start');
-      window.setTimeout.expect(1000).process();
-    } else {
-      expect(window.setTimeout.queue).toEqual([]);
-    }
-
-    expect(kid.attr('class')).not.toContain('custom-leave-setup');
-    expect(kid.attr('class')).not.toContain('custom-leave-start');
+    item = $animate.flushNext('leave').element;
+    expect(item.text()).toBe('2');
   }));
 
-  it('should fire off the move animation + add and remove the css classes',
-    inject(function($compile, $rootScope, $sniffer) {
+  it('should fire off the move animation',
+    inject(function($compile, $rootScope, $animate) {
+
+      var item;
+
       element = $compile(html(
         '<div>' +
-          '<div ng-repeat="item in items" ng-animate="{move: \'custom-move\'}">' +
+          '<div ng-repeat="item in items">' +
             '{{ item }}' +
           '</div>' +
         '</div>'
@@ -659,79 +964,23 @@ describe('ngRepeat ngAnimate', function() {
       $rootScope.items = ['1','2','3'];
       $rootScope.$digest();
 
-      //if we add the custom css stuff here then it will get picked up before the animation takes place
-      var cssProp = '-' + $sniffer.vendorPrefix + '-transition';
-      var cssValue = '1s linear all';
-      var kids = element.children();
-      for(var i=0;i<kids.length;i++) {
-        kids[i] = jqLite(kids[i]);
-        kids[i].css(cssProp, cssValue);
-      }
+      item = $animate.flushNext('enter').element;
+      expect(item.text()).toBe('1');
+
+      item = $animate.flushNext('enter').element;
+      expect(item.text()).toBe('2');
+
+      item = $animate.flushNext('enter').element;
+      expect(item.text()).toBe('3');
 
       $rootScope.items = ['2','3','1'];
       $rootScope.$digest();
 
-      //the last element gets pushed down when it animates
-      var kids  = element.children();
-      var first = jqLite(kids[0]);
-      var left  = jqLite(kids[1]);
-      var right = jqLite(kids[2]);
+      item = $animate.flushNext('move').element;
+      expect(item.text()).toBe('2');
 
-      if ($sniffer.supportsTransitions) {
-        expect(first.attr('class')).toContain('custom-move-setup');
-        window.setTimeout.expect(1).process();
-        expect(left.attr('class')).toContain('custom-move-setup');
-        window.setTimeout.expect(1).process();
-
-        expect(first.attr('class')).toContain('custom-move-start');
-        window.setTimeout.expect(1000).process();
-        expect(left.attr('class')).toContain('custom-move-start');
-        window.setTimeout.expect(1000).process();
-      } else {
-        expect(window.setTimeout.queue).toEqual([]);
-      }
-
-      expect(first.attr('class')).not.toContain('custom-move-setup');
-      expect(first.attr('class')).not.toContain('custom-move-start');
-      expect(left.attr('class')).not.toContain('custom-move-setup');
-      expect(left.attr('class')).not.toContain('custom-move-start');
-      expect(right.attr('class')).not.toContain('custom-move-setup');
-      expect(right.attr('class')).not.toContain('custom-move-start');
-  }));
-
-  it('should catch and use the correct duration for animation',
-    inject(function($compile, $rootScope, $sniffer) {
-
-      element = $compile(html(
-        '<div><div ' +
-          'ng-repeat="item in items" ' +
-          'ng-animate="{enter: \'custom-enter\'}">' +
-          '{{ item }}' +
-        '</div></div>'
-      ))($rootScope);
-
-      $rootScope.$digest(); // re-enable the animations;
-
-      $rootScope.items = ['a','b'];
-      $rootScope.$digest();
-
-      //if we add the custom css stuff here then it will get picked up before the animation takes place
-      var kids = element.children();
-      var first = jqLite(kids[0]);
-      var second = jqLite(kids[1]);
-      var cssProp = '-' + $sniffer.vendorPrefix + '-transition';
-      var cssValue = '0.5s linear all';
-      first.css(cssProp, cssValue);
-      second.css(cssProp, cssValue);
-
-      if ($sniffer.supportsTransitions) {
-        window.setTimeout.expect(1).process();
-        window.setTimeout.expect(1).process();
-        window.setTimeout.expect(500).process();
-        window.setTimeout.expect(500).process();
-      } else {
-        expect(window.setTimeout.queue).toEqual([]);
-      }
+      item = $animate.flushNext('move').element;
+      expect(item.text()).toBe('1');
   }));
 
 });

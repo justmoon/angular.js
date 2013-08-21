@@ -64,7 +64,7 @@ tag as the template.
 bindings. As opposed to evaluating constants, these expressions are referring to our application
 model, which was set up in our `PhoneListCtrl` controller.
 
-      <img class="diagram" src="img/tutorial/tutorial_02.png">
+<img class="diagram" src="img/tutorial/tutorial_02.png">
 
 
 ## Model and Controller
@@ -134,10 +134,10 @@ describe('PhoneCat controllers', function() {
 });
 </pre>
 
-The test verifies that we have three records in the phones array and the example demonstrates how
-easy it is to create a unit test for code in Angular. Since testing is such a critical part of
-software development, we make it easy to create tests in Angular so that developers are encouraged
-to write them.
+The test instantiates our PhoneListCtrl and verifies that its phones array property contains three
+records. This example demonstrates how easy it is to create a unit test for code in Angular. Since
+testing is such a critical part of software development, we make it easy to create tests in Angular
+so that developers are encouraged to write them.
 
 Angular developers prefer the syntax of Jasmine's Behavior-driven Development  (BDD) framework when
 writing tests. Although Angular does not require you to use Jasmine, we wrote all of the tests in
@@ -150,7 +150,7 @@ http://karma-runner.github.io/ Karma}. To run the test, do the following:
 
 1. In a _separate_ terminal window or tab, go to the `angular-phonecat` directory and run
 `./scripts/test.sh` to start the Karma server (the config file necessary to start the server
-is located at `./config/testacular.conf.js`).
+is located at `./config/karma.conf.js`).
 
 2. Karma will start a new instance of Chrome browser automatically. Just ignore it and let it run in
    the background. Karma will use this browser for test execution.

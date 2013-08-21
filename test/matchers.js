@@ -30,11 +30,25 @@ beforeEach(function() {
     return -1;
   }
 
+  function isNgElementHidden(element) {
+    return angular.element(element).hasClass('ng-hide');
+  };
+
   this.addMatchers({
     toBeInvalid: cssMatcher('ng-invalid', 'ng-valid'),
     toBeValid: cssMatcher('ng-valid', 'ng-invalid'),
     toBeDirty: cssMatcher('ng-dirty', 'ng-pristine'),
     toBePristine: cssMatcher('ng-pristine', 'ng-dirty'),
+    toBeShown: function() {
+      this.message = valueFn(
+          "Expected element " + (this.isNot ? "": "not ") + "to have 'ng-hide' class");
+      return !isNgElementHidden(this.actual);
+    },
+    toBeHidden: function() {
+      this.message = valueFn(
+          "Expected element " + (this.isNot ? "not ": "") + "to have 'ng-hide' class");
+      return isNgElementHidden(this.actual);
+    },
 
     toEqual: function(expected) {
       if (this.actual && this.actual.$$log) {
@@ -147,7 +161,106 @@ beforeEach(function() {
       return this.actual.hasClass ?
               this.actual.hasClass(clazz) :
               angular.element(this.actual).hasClass(clazz);
-    }
+    },
 
+    toThrowMatching: function(expected) {
+      return jasmine.Matchers.prototype.toThrow.call(this, expected);
+    },
+
+    toThrowMinErr: function(namespace, code, content) {
+      var result,
+        exception,
+        exceptionMessage = '',
+        escapeRegexp = function (str) {
+          // This function escapes all special regex characters.
+          // We use it to create matching regex from arbitrary strings.
+          // http://stackoverflow.com/questions/3446170/escape-string-for-use-in-javascript-regex
+          return str.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&");
+        },
+        codeRegex = new RegExp('^\\[' + escapeRegexp(namespace) + ':' + escapeRegexp(code) + '\\]'),
+        not = this.isNot ? "not " : "",
+        regex = jasmine.isA_("RegExp", content) ? content :
+                  isDefined(content) ? new RegExp(escapeRegexp(content)) : undefined;
+
+      if(!isFunction(this.actual)) {
+        throw new Error('Actual is not a function');
+      }
+
+      try {
+        this.actual();
+      } catch (e) {
+        exception = e;
+      }
+
+      if (exception) {
+        exceptionMessage = exception.message || exception;
+      }
+
+      this.message = function () {
+        return "Expected function " + not + "to throw " +
+          namespace + "MinErr('" + code + "')" +
+          (regex ? " matching " + regex.toString() : "") +
+          (exception ? ", but it threw " + exceptionMessage : ".");
+      };
+
+      result = codeRegex.test(exceptionMessage);
+      if (!result) {
+        return result;
+      }
+
+      if (isDefined(regex)) {
+        return regex.test(exceptionMessage);
+      }
+      return result;
+    }
   });
 });
+
+
+// TODO(vojta): remove this once Jasmine in Karma gets updated
+// https://github.com/pivotal/jasmine/blob/c40b64a24c607596fa7488f2a0ddb98d063c872a/src/core/Matchers.js#L217-L246
+// This toThrow supports RegExps.
+jasmine.Matchers.prototype.toThrow = function(expected) {
+  var result = false;
+  var exception, exceptionMessage;
+  if (typeof this.actual != 'function') {
+    throw new Error('Actual is not a function');
+  }
+  try {
+    this.actual();
+  } catch (e) {
+    exception = e;
+  }
+
+  if (exception) {
+    exceptionMessage = exception.message || exception;
+    result = (isUndefined(expected) || this.env.equals_(exceptionMessage, expected.message || expected) || (jasmine.isA_("RegExp", expected) && expected.test(exceptionMessage)));
+  }
+
+  var not = this.isNot ? "not " : "";
+  var regexMatch = jasmine.isA_("RegExp", expected) ? " an exception matching" : "";
+
+  this.message = function() {
+    if (exception) {
+      return ["Expected function " + not + "to throw" + regexMatch, expected ? expected.message || expected : "an exception", ", but it threw", exceptionMessage].join(' ');
+    } else {
+      return "Expected function to throw an exception.";
+    }
+  };
+
+  return result;
+};
+
+
+/**
+ * Create jasmine.Spy on given method, but ignore calls without arguments
+ * This is helpful when need to spy only setter methods and ignore getters
+ */
+function spyOnlyCallsWithArgs(obj, method) {
+  var spy = spyOn(obj, method);
+  obj[method] = function() {
+    if (arguments.length) return spy.apply(this, arguments);
+    return spy.originalValue.apply(this);
+  };
+  return spy;
+}
